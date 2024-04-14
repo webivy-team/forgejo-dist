@@ -10,7 +10,7 @@ permissions: write-all
 
 env:
   FORGEJO_VERSION: "1.21.10-0"
-  FORGEJO_DIST_VERSION: "1"
+  FORGEJO_DIST_VERSION: "2"
 
 jobs:
   package:
@@ -21,6 +21,7 @@ jobs:
 
       - name: Pack packages
         run: |
+          gunzip npm/*/forgejo.gz
           (cd ./npm/forgejo-dist && npm run pre-release && npm pack)
           (cd ./npm/linux-arm64 && npm pack)
           (cd ./npm/linux-x64 && npm pack)
@@ -132,9 +133,11 @@ jobs:
 
       - name: Pack packages
         run: |
+          gunzip npm/*/forgejo.gz
           (cd ./npm/forgejo-dist && npm run pre-release && npm pack)
           (cd ./npm/linux-arm64 && npm pack)
           (cd ./npm/linux-x64 && npm pack)
+          gzip -9 npm/*/forgejo
 
       - name: Check if there are any changes
         id: has_changes
