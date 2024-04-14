@@ -12,5 +12,5 @@
     "x64"
   ],
   "bin": "forgejo",
-  "version": "v1.21.10-0-1"
+  "version": "v1.21.10-0-2"
 }
