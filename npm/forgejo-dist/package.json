@@ -1,0 +1,17 @@
+{
+  "repository": "https://github.com/webivy-team/forgejo-dist",
+  "name": "forgejo-dist",
+  "version": "v1.21.10-0-1",
+  "type": "module",
+  "main": "index.js",
+  "license": "MIT",
+  "scripts": {
+    "pre-release": "jq '.version = \"'v${FORGEJO_VERSION}-${FORGEJO_DIST_VERSION}'\"' package.json > package.json.tmp && mv package.json.tmp package.json && npm run linux-arm64 && npm run linux-x64 && npm update",
+    "linux-arm64": "version=$(cat ./package.json | jq -r '.version') && jq '.optionalDependencies[\"forgejo-dist-linux-arm64\"] = \"'$version'\"' package.json > package.json.tmp && mv package.json.tmp package.json && cd ../linux-arm64 && npm run pre-release",
+    "linux-x64": "version=$(cat ./package.json | jq -r '.version') && jq '.optionalDependencies[\"forgejo-dist-linux-x64\"] = \"'$version'\"' package.json > package.json.tmp && mv package.json.tmp package.json && cd ../linux-x64 && npm run pre-release"
+  },
+  "optionalDependencies": {
+    "forgejo-dist-linux-arm64": "v1.21.10-0-1",
+    "forgejo-dist-linux-x64": "v1.21.10-0-1"
+  }
+}

@@ -1,0 +1,160 @@
+name: Build, Test & Publish
+
+on:
+  push:
+    branches:
+      - 'master'
+      - 'main'
+
+permissions: write-all
+
+env:
+  FORGEJO_VERSION: "1.21.10-0"
+  FORGEJO_DIST_VERSION: "1"
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout master branch
+        uses: actions/checkout@v4
+
+      - name: Pack packages
+        run: |
+          (cd ./npm/forgejo-dist && npm run pre-release && npm pack)
+          (cd ./npm/linux-arm64 && npm pack)
+          (cd ./npm/linux-x64 && npm pack)
+      - name: List all files
+        run: find
+
+      - name: Upload bundle linux-x64
+        uses: actions/upload-artifact@v4
+        with:
+          path: npm/linux-x64/forgejo-dist-linux-x64-*.tgz
+          name: forgejo-dist-linux-x64.tgz
+          if-no-files-found: error
+      - name: Upload bundle linux-arm64
+        uses: actions/upload-artifact@v4
+        with:
+          path: npm/linux-arm64/forgejo-dist-linux-arm64-*.tgz
+          name: forgejo-dist-linux-arm64.tgz
+          if-no-files-found: error
+      - name: Upload bundle forgejo-dist
+        uses: actions/upload-artifact@v4
+        with:
+          path: npm/forgejo-dist/forgejo-dist-*.tgz
+          name: forgejo-dist.tgz
+          if-no-files-found: error
+
+  test-linux-x64:
+    runs-on: ubuntu-latest
+    needs:
+      - package
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/download-artifact@v4
+        with:
+          name: forgejo-dist.tgz
+      - uses: actions/download-artifact@v4
+        with:
+          name: forgejo-dist-linux-x64.tgz
+      - name: Run NPM Test
+        working-directory: ./tests
+        run: |
+          npm i ../forgejo-dist-*.tgz && npm test
+
+  test-linux-arm64:
+    runs-on: ubuntu-latest
+    needs:
+      - package
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: forgejo-dist.tgz
+      - uses: actions/download-artifact@v4
+        with:
+          name: forgejo-dist-linux-arm64.tgz
+      - name: Run testing
+        uses: uraimo/run-on-arch-action@v2
+        with:
+          arch: aarch64
+          distro: ubuntu22.04
+          run: |
+            apt update -q -y
+            apt install -q -y curl bash sudo
+            useradd -m otheruser
+            cp ./forgejo-dist-*.tgz tests/
+            chmod -R 777 tests
+            sudo -u otheruser bash -c 'curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.5/install.sh | bash'
+            sudo -u otheruser bash -c '. ~/.profile && nvm install v20 && (cd tests && npm i ./forgejo-dist-*.tgz && npm test)'
+
+  publish:
+    runs-on: ubuntu-latest
+    needs:
+      - test-linux-x64
+      - test-linux-arm64
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: 'https://registry.npmjs.org'
+      - uses: actions/download-artifact@v4
+        with:
+          name: forgejo-dist.tgz
+      - uses: actions/download-artifact@v4
+        with:
+          name: forgejo-dist-linux-x64.tgz
+      - uses: actions/download-artifact@v4
+        with:
+          name: forgejo-dist-linux-arm64.tgz
+      - name: Run NPM Publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          npm publish forgejo-dist-v*.tgz
+          npm publish forgejo-dist-linux-x64-v*.tgz
+          npm publish forgejo-dist-linux-arm64-v*.tgz
+
+  push:
+    needs:
+      - test-linux-x64
+      - test-linux-arm64
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout master branch
+        uses: actions/checkout@v4
+
+      - name: Pack packages
+        run: |
+          (cd ./npm/forgejo-dist && npm run pre-release && npm pack)
+          (cd ./npm/linux-arm64 && npm pack)
+          (cd ./npm/linux-x64 && npm pack)
+
+      - name: Check if there are any changes
+        id: has_changes
+        run: |
+          git status || exit 1
+          test -n "$(git status --porcelain)" && result=yes || result=no
+          echo "result=$result" >> $GITHUB_OUTPUT
+
+      - name: Commit changes
+        if: steps.has_changes.outputs.result == 'yes'
+        run: |
+          git config --local user.email "github-actions@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add --all
+          git commit -m "Autobuild: Built from ${{ github.sha }}"
+
+      - name: Push changes back to origin
+        if: steps.has_changes.outputs.result == 'yes'
+        run: |
+          # XXX: workaround for https://github.com/orgs/community/discussions/55820
+          git config --global http.version HTTP/1.1
+          git pull -r
+          git push https://${GITHUB_ACTOR}:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git main
